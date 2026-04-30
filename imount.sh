@@ -58,7 +58,6 @@ monitor_device() {
             was_connected=1
 
         elif [[ "$was_connected" -eq 1 && "$output" == *"No device found"* ]]; then
-            echo "Device disconnected. Exiting..."
             kill -TERM $$ 2>/dev/null
             exit
             clear
@@ -73,8 +72,6 @@ listen_for_q() {
         local key
         read -rsn1 key
         if [[ "$key" == "q" ]]; then
-            echo
-            echo "Quitting..."
             cleanup
         fi
     done
@@ -84,6 +81,15 @@ check_for_q() {
     local key
     read -rsn1 -t 0.01 key
     [[ "$key" == "q" ]] && cleanup
+}
+
+device_info() {
+    echo Device Class: "$device_class"
+    echo Device Name:"$device_name"
+    echo Battery: "$device_battery"%
+    echo Storage Free: "$device_disk"GB
+    echo
+
 }
 
 choose_app() {
@@ -106,13 +112,15 @@ choose_app() {
 
     while true; do
         clear
+
         if [ -n "${last_msg:-}" ]; then
             if [ "$last_msg" != "$msg" ]; then
                 echo -e "$last_msg"
                 echo
-                last_msg=""
             fi
         fi
+
+        device_info
         echo "Available apps (↑ ↓ to move, Enter to select, d to set/remove default app, q to quit):"
         echo
 
@@ -174,8 +182,8 @@ wait_for_done() {
         read -rsn1 key
         case "$key" in
             q)  cleanup;;
-            d)  return 1 ;;  # go to choose_app
-            "")  return 1 ;;  # stupid but kinda how it should be
+            d)  return 2 ;;  # go to choose_app
+            "")  return 2 ;;  # stupid but kinda how it should be
         esac
     done
 }
@@ -265,6 +273,11 @@ while true; do
         skip_chooser_next=0
     fi
 
+    device_class=$(ideviceinfo | grep "DeviceClass" | cut -d' ' -f2)
+    device_name=$(ideviceinfo | grep "DeviceName" | cut -d':' -f2)
+    device_battery=$(ideviceinfo -q com.apple.mobile.battery | grep "BatteryCurrentCapacity" | cut -d' ' -f2)
+    device_disk=$(ideviceinfo -q com.apple.disk_usage | grep "AmountDataAvailable" | cut -d' ' -f2 | awk '{printf "%.2f", $1/1073741824}')
+
     if [ "$skip_chooser" -eq 0 ]; then
         choose_app
 
@@ -285,7 +298,6 @@ while true; do
     fi
 
     # mount
-
     clear
 
     if [ "$choice" = "Filesystem (Photos and Media)" ]; then
@@ -314,9 +326,17 @@ while true; do
         continue
     fi
 
+    device_info
     echo -e "$msg"
+
     wait_for_done
-    wait_result=$?
+        wait_result=$?
+
+        if [ "$wait_result" -eq 2 ]; then
+            skip_chooser_next=1
+        else
+            skip_chooser_next=0
+        fi
 
 
     # unmount
